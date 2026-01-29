@@ -1,0 +1,10 @@
+function setupSystem() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let master = ss.getSheetByName(CONFIG.SHEET_NAME) || ss.insertSheet(CONFIG.SHEET_NAME);
+  const headers = ["Date Rec", "Name", "DOB", "Phone", "Address", "TENS", "Stockings", "Pump", "Bracing", "Bracing Type", "Prim Ins", "Prim ID", "Sec Ins", "Sec ID", "Notes Rec?", "RX Rec?", "Status", "Folder ID", "Folder Link", "Demo ID", "LMN ID", "Asst 1 Sent", "Asst 2 Sent"];
+  master.getRange(1,1,1,23).setValues([headers]).setFontWeight("bold").setBackground("#d9ead3");
+  master.setFrozenRows(1);
+  master.getRange("F2:I1000").insertCheckboxes();
+  master.getRange("O2:P1000").insertCheckboxes();
+  master.hideColumns(18); master.hideColumns(20, 2);
+}
