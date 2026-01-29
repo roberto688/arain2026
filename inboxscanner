@@ -1,0 +1,41 @@
+function checkInbox() {
+  const TRIGGER_LABEL = "TO_FILE";       
+  const PROCESSED_LABEL = "DME_PROCESSED"; 
+  const label = GmailApp.getUserLabelByName(TRIGGER_LABEL);
+  const doneLabel = GmailApp.getUserLabelByName(PROCESSED_LABEL) || GmailApp.createLabel(PROCESSED_LABEL);
+  if (!label) return;
+
+  const threads = label.getThreads();
+  const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  const unmatchedFolder = DriveApp.getFolderById(CONFIG.UNMATCHED_FOLDER_ID);
+
+  threads.forEach(thread => {
+    thread.getMessages().forEach(msg => {
+      msg.getAttachments().forEach(att => {
+        const fn = att.getName();
+        let isFiled = false; 
+        const match = fn.match(CONFIG.NAME_MATCH_REGEX); 
+        
+        if (match) {
+          const key1 = (match[1] + match[2]).toLowerCase();
+          const key2 = (match[2] + match[1]).toLowerCase();
+
+          for (let i = 1; i < data.length; i++) {
+            const rowName = String(data[i][1]).toLowerCase().replace(/[\s,]/g, ""); 
+            if ((rowName.includes(key1) || rowName.includes(key2)) && data[i][17]) {
+              DriveApp.getFolderById(data[i][17]).createFile(att);
+              if (fn.match(CONFIG.RX_REGEX)) sheet.getRange(i+1, 16).setValue(true);
+              else sheet.getRange(i+1, 15).setValue(true);
+              checkStatus(sheet, i+1);
+              isFiled = true; 
+              break; 
+            }
+          }
+        }
+        if (!isFiled) unmatchedFolder.createFile(att);
+      });
+    });
+    thread.removeLabel(label).addLabel(doneLabel);
+  });
+}
