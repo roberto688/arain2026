@@ -1,0 +1,162 @@
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('🚀 Patient Actions')
+    .addItem('✅ Submit Patient', 'submitPatient')
+    .addItem('🔍 Search Patient', 'searchPatient')
+    .addSeparator()
+    .addItem('📦 Bulk Archive Completed', 'bulkArchivePatients') 
+    .addSeparator()
+    .addItem('🔄 Sync Bulk Insurance', 'forceGenerateMissingDemos')
+    .addItem('⚠️ Repair & Reset Demos', 'repairAndClearDemos')
+    .addSeparator()
+    .addItem('📧 Email Alma (Insurance)', 'emailAssistant1')
+    .addItem('📧 Email Sidra (Notes)', 'emailAssistant2')
+    .addSeparator()
+    .addItem('🗄️ Archive Patient (Manual)', 'archivePatient')
+    .addItem('🔄 Batch LMNs', 'batchGenerateLMNs')
+    .addItem('🎨 Refresh UI', 'makeItLookCool')
+    .addToUi();
+}
+
+function submitPatient() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const input = ss.getSheetByName(CONFIG.INPUT_SHEET_NAME);
+  const master = ss.getSheetByName(CONFIG.SHEET_NAME);
+  
+  // 1. GET THE DATE FROM THE FORM (Cell C4)
+  const dateReceived = input.getRange("C4").getValue(); 
+
+  const name = input.getRange("C5").getValue();
+  const dob = input.getRange("C6").getValue();
+  
+  if (!name || !dob) return SpreadsheetApp.getUi().alert("Name/DOB Required");
+  
+  // Insert at Row 2
+  master.insertRowAfter(1);
+  
+  const rowData = [
+    // 2. USE THE DATE FROM FORM (Or today if blank)
+    dateReceived || new Date(), 
+    name, 
+    dob, 
+    input.getRange("C7").getValue(), // Phone (Col D)
+    input.getRange("C8").getValue(), // Address (Col E)
+    input.getRange("C11").getValue(), // TENS
+    input.getRange("C12").getValue(), // Stock
+    input.getRange("C13").getValue(), // Pump
+    input.getRange("C14").getValue(), // Brace
+    input.getRange("C15").getValue(), // Brace Type
+    "", "", "", "", false, false, "New", "", "", "", "", "", ""
+  ];
+  
+  const newRowRange = master.getRange(2, 1, 1, 23);
+  
+  // Set Values
+  newRowRange.setValues([rowData]);
+
+  // Formatting
+  newRowRange.clearFormat() 
+             .setBackground("white")
+             .setFontColor("black")
+             .setFontSize(10)
+             .setVerticalAlignment("middle");
+
+  // Format Date Column (A) specifically to show date clearly
+  master.getRange(2, 1).setNumberFormat("MM/dd/yyyy");
+
+  // Format Phone (D)
+  master.getRange(2, 4).setNumberFormat('(###) ###-####');
+
+  // Add Checkboxes
+  master.getRange("F2:I2").insertCheckboxes(); 
+  master.getRange("O2:P2").insertCheckboxes();
+  
+  // Clear form (EXCEPT DATE - optional, but usually good to leave date or reset to today)
+  input.getRange("C5:C8").clearContent(); 
+  input.getRange("C11:C15").clearContent(); 
+  // Reset date to today for the next person?
+  input.getRange("C4").setValue(new Date());
+  
+  SpreadsheetApp.flush();
+  createPatientFolder(master, 2, name, dob);
+  SpreadsheetApp.getUi().alert("Patient Submitted Successfully.");
+}
+
+// --- KEEP THE REST OF YOUR FUNCTIONS BELOW AS IS ---
+function searchPatient() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const query = ss.getSheetByName(CONFIG.INPUT_SHEET_NAME).getRange("C19").getValue().toLowerCase();
+  const sheets = [ss.getSheetByName(CONFIG.SHEET_NAME), ss.getSheetByName(CONFIG.ARCHIVE_SHEET_NAME)];
+  let res = "";
+  sheets.forEach(s => {
+    if (!s) return;
+    const d = s.getDataRange().getValues();
+    for (let i = 1; i < d.length; i++) {
+      if (d[i][1] && String(d[i][1]).toLowerCase().includes(query)) {
+        res += `👤 ${d[i][1]} (${s.getName()})\nStatus: ${d[i][16]}\n`;
+      }
+    }
+  });
+  SpreadsheetApp.getUi().alert(res || "Not found");
+}
+
+function archivePatient() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const m = ss.getSheetByName(CONFIG.SHEET_NAME);
+  let a = ss.getSheetByName(CONFIG.ARCHIVE_SHEET_NAME) || ss.insertSheet(CONFIG.ARCHIVE_SHEET_NAME);
+  const r = m.getActiveCell().getRow();
+  if (r < 2) return;
+  a.appendRow(m.getRange(r, 1, 1, 23).getValues()[0]);
+  m.deleteRow(r);
+}
+
+function batchGenerateLMNs() {
+  const s = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
+  const d = s.getDataRange().getValues();
+  for (let i = 1; i < d.length; i++) {
+    if (d[i][5] && d[i][17] && !d[i][20]) createTensLMN(s, i+1, d[i]);
+  }
+}
+
+function emailAssistant1() { SpreadsheetApp.getUi().alert("Feature placeholder: Email Alma"); }
+function emailAssistant2() { SpreadsheetApp.getUi().alert("Feature placeholder: Email Sidra"); }
+
+function makeItLookCool() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.INPUT_SHEET_NAME);
+  sheet.getRange("A1:Z100").clear().setBackground("#f0f2f5"); 
+  sheet.setHiddenGridlines(true);
+  const formRange = sheet.getRange("B2:C16");
+  formRange.setBackground("white").setBorder(true, true, true, true, null, null, "black", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  const header = sheet.getRange("B2:C2").merge().setValue("✨ New Patient Intake").setBackground("#4285F4").setFontColor("white").setFontSize(14).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  
+  sheet.setColumnWidth(1, 50);  sheet.setColumnWidth(2, 150); sheet.setColumnWidth(3, 300); sheet.setRowHeight(2, 60);
+
+  function drawField(row, label) {
+    sheet.getRange("B" + row).setValue(label).setFontWeight("bold").setHorizontalAlignment("right");
+    sheet.getRange("C" + row).setBackground("#f8f9fa").setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+    sheet.setRowHeight(row, 35);
+  }
+  drawField(4, "Date Rec:"); drawField(5, "Name:"); drawField(6, "DOB:"); drawField(7, "Phone:"); drawField(8, "Address:");
+  sheet.getRange("C4").setValue(new Date());
+
+  sheet.getRange("B10:C10").merge().setValue("📦 Product Selection").setFontWeight("bold").setVerticalAlignment("bottom");
+  const prods = [["TENS Unit", 11], ["Stockings", 12], ["Pump", 13], ["Bracing", 14]];
+  prods.forEach(p => {
+    sheet.getRange("B" + p[1]).setValue(p[0]).setHorizontalAlignment("right");
+    sheet.getRange("C" + p[1]).insertCheckboxes();
+    sheet.setRowHeight(p[1], 30);
+  });
+  drawField(15, "Bracing Type:");
+
+  const submitBtn = sheet.getRange("C17").setValue("SUBMIT NEW PATIENT").setBackground("#34A853").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
+  sheet.setRowHeight(17, 50);
+
+  sheet.getRange("B18:C21").setBackground("white").setBorder(true, true, true, true, null, null, "#4285F4", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sheet.getRange("B18:C18").merge().setValue("🔍 Quick Search").setBackground("#4285F4").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
+  sheet.getRange("B19").setValue("Enter Name:").setHorizontalAlignment("right");
+  sheet.getRange("C19").setBackground("#f8f9fa").setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange("C20").setValue("RUN SEARCH").setBackground("#FBBC04").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
+  sheet.setRowHeight(20, 40);
+
+  SpreadsheetApp.getActive().toast("UI Refreshed!");
+}
