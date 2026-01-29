@@ -1,0 +1,337 @@
+/**
+ * SheetWatch.gs
+ * Handles: Folder Creation, PDF Generation, Call Log, and BILLING ARCHIVE.
+ * STRATEGY: Attachments ONLY. No Links. One email per patient.
+ */
+
+function onEdit(e) {
+  if (!e) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== CONFIG.SHEET_NAME) return; 
+  const row = e.range.getRow();
+  if (row < 2) return;
+  
+  const data = sheet.getRange(row, 1, 1, 23).getValues()[0];
+  
+  const name = data[1];       
+  const dob = data[2];        
+  const isTens = data[5];     
+  const primIns = data[10];   
+  const status = data[16];    // Col Q (Status)
+  const folderVal = data[17]; 
+  const demoPdf = data[19];   
+
+  // 1. Auto-create folder
+  if (name && dob && !folderVal) {
+    createPatientFolder(sheet, row, name, dob);
+  }
+  
+  // 2. TRIGGER: Demo PDF
+  if (folderVal && primIns && !demoPdf) {
+    createDemoPDF(sheet, row, data);
+  }
+  
+  // 3. TENS LMN
+  if (folderVal && isTens === true && !data[20]) {
+    createTensLMN(sheet, row, data);
+  }
+
+  // 4. INDIVIDUAL COMPLETION (Manual Trigger)
+  if (e.range.getColumn() === 17 && String(status).includes("Complete") && e.range.getHeight() === 1) {
+    
+    // PRE-FLIGHT CHECK
+    const missingItems = validatePatientDocs(data);
+    
+    if (missingItems.length > 0) {
+      SpreadsheetApp.getUi().alert(
+        '❌ Cannot Archive Yet',
+        `Missing Documents for ${name}:\n\n- ${missingItems.join('\n- ')}\n\nPlease ensure files are generated and checkboxes are checked.`,
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+      sheet.getRange(row, 17).setValue("Pending Docs"); 
+    } else {
+      const ui = SpreadsheetApp.getUi();
+      const result = ui.alert(
+        'Ready for Billing',
+        `All documents found.\n\nSend email with ATTACHMENTS (No Links) to billing?`,
+        ui.ButtonSet.YES_NO
+      );
+
+      if (result == ui.Button.YES) {
+        processAndArchivePatient(sheet, row, data);
+      }
+    }
+  }
+}
+
+// --- BULK ARCHIVE (The Batch Processor) ---
+function bulkArchivePatients() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  
+  let archivedCount = 0;
+  let skippedCount = 0;
+
+  // Loop BACKWARDS to safely delete rows as we go
+  for (let i = data.length - 1; i >= 1; i--) {
+    const row = data[i];
+    const status = String(row[16]); 
+    const name = row[1];
+
+    if (status.includes("Complete") || status.includes("Billing Ready")) {
+      
+      // PRE-FLIGHT CHECK
+      const missingItems = validatePatientDocs(row);
+      
+      if (missingItems.length > 0) {
+        console.log(`Skipping ${name}: Missing ${missingItems.join(', ')}`);
+        skippedCount++;
+        sheet.getRange(i + 1, 17).setValue("Missing: " + missingItems[0]);
+        continue; 
+      }
+
+      try {
+        // PROCESS THE PATIENT
+        processAndArchivePatient(sheet, i + 1, row);
+        archivedCount++;
+      } catch (e) {
+        console.log(`Error archiving row ${i + 1}: ${e.message}`);
+      }
+    }
+  }
+
+  if (archivedCount > 0) {
+    let msg = `✅ Processed ${archivedCount} patients.\n\nBilling has received ${archivedCount} separate emails.`;
+    if (skippedCount > 0) msg += `\n⚠️ Skipped ${skippedCount} patients (Missing Docs).`;
+    SpreadsheetApp.getUi().alert(msg);
+  } else if (skippedCount > 0) {
+    SpreadsheetApp.getUi().alert(`⚠️ Skipped ${skippedCount} patients because documents were missing.`);
+  } else {
+    SpreadsheetApp.getUi().alert("No patients found with status 'Complete'.");
+  }
+}
+
+// --- CORE ARCHIVE FUNCTION ---
+function processAndArchivePatient(sheet, rowIdx, data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let archiveSheet = ss.getSheetByName(CONFIG.ARCHIVE_SHEET_NAME);
+  if (!archiveSheet) {
+    archiveSheet = ss.insertSheet(CONFIG.ARCHIVE_SHEET_NAME);
+    const headers = sheet.getRange(1, 1, 1, 23).getValues();
+    archiveSheet.getRange(1, 1, 1, 23).setValues(headers).setFontWeight("bold");
+  }
+
+  const name = data[1];
+  const dob = formatDate(data[2]);
+  const folderId = data[17];
+  
+  // 1. Get Attachments (NO LINKS)
+  let attachments = [];
+  if (folderId) {
+    attachments = getFolderAttachments(folderId, name);
+  }
+
+  // 2. Email Biller (UPDATED SUBJECT LINE)
+  MailApp.sendEmail({
+    to: CONFIG.COMPLETED_EMAIL,
+    cc: CONFIG.CC_EMAIL,
+    // --- HERE IS THE CHANGE ---
+    subject: `New DR Arain PT - ${name} ${dob}`,
+    // --------------------------
+    htmlBody: `
+      <h3>New Claim for Processing</h3>
+      <ul>
+        <li><b>Name:</b> ${name}</li>
+        <li><b>DOB:</b> ${dob}</li>
+      </ul>
+      <p>All relevant documents are attached to this email.</p>
+    `,
+    attachments: attachments
+  });
+
+  // 3. Move Drive Folder to Archive
+  if (folderId && CONFIG.ARCHIVE_FOLDER_ID) {
+    try {
+      DriveApp.getFolderById(folderId).moveTo(DriveApp.getFolderById(CONFIG.ARCHIVE_FOLDER_ID));
+    } catch (e) { console.log("Drive Move Error: " + e); }
+  }
+  
+  // 4. Copy Row to Archive Sheet
+  archiveSheet.appendRow(data);
+  
+  // 5. Delete Row from Master Sheet
+  sheet.deleteRow(rowIdx);
+}
+
+// --- HELPER: GRAB FILES ---
+function getFolderAttachments(folderId, prefix) {
+  const blobs = [];
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const file = files.next();
+      // Prefix name so biller knows who it is if they download it
+      const blob = file.getBlob().setName(`${prefix} - ${file.getName()}`);
+      blobs.push(blob);
+    }
+  } catch (e) { console.log("Error getting files: " + e); }
+  return blobs;
+}
+
+// --- VALIDATION LOGIC ---
+function validatePatientDocs(data) {
+  const missing = [];
+  if (!data[19]) missing.push("Demographics PDF");
+  if (data[14] !== true && String(data[14]).toUpperCase() !== "TRUE") missing.push("Clinical Notes");
+  if (data[15] !== true && String(data[15]).toUpperCase() !== "TRUE") missing.push("Prescription (RX)");
+  
+  const isTens = (data[5] === true || String(data[5]).toUpperCase() === "TRUE");
+  if (isTens && !data[20]) missing.push("TENS LMN");
+
+  return missing;
+}
+
+// --- EXISTING FUNCTIONS (Standard) ---
+function createPatientFolder(sheet, row, name, dob) {
+  try {
+    const parent = DriveApp.getFolderById(CONFIG.PARENT_FOLDER_ID);
+    const dobStr = formatDate(dob).replace(/\//g, "-");
+    const newFolder = parent.createFolder(`${name} - ${dobStr}`);
+    sheet.getRange(row, 18).setValue(newFolder.getId());  
+    sheet.getRange(row, 19).setValue(newFolder.getUrl()); 
+    return newFolder.getId();
+  } catch (e) { console.log("Folder Error: " + e); return null; }
+}
+
+function createDemoPDF(sheet, row, data) {
+  try {
+    const folderId = data[17];
+    if (!folderId) return;
+    const folder = DriveApp.getFolderById(folderId); 
+    const template = DriveApp.getFileById(CONFIG.DEMO_TEMPLATE_ID);
+    const copy = template.makeCopy(`Demographics - ${data[1]}`, folder);
+    const doc = DocumentApp.openById(copy.getId());
+    const body = doc.getBody();
+    body.replaceText("{{Name}}", data[1]);
+    body.replaceText("{{DOB}}", formatDate(data[2]));
+    body.replaceText("{{Phone}}", data[3]);   
+    body.replaceText("{{Address}}", data[4]); 
+    body.replaceText("{{Insurance}}", data[10]); 
+    body.replaceText("{{MemberID}}", data[11]);  
+    const secIns = data[12] ? String(data[12]) : "N/A";
+    const secId = data[13] ? String(data[13]) : "N/A";
+    body.replaceText("{{SecondaryInsurance}}", secIns);
+    body.replaceText("{{Secondary MemberID}}", secId); 
+    body.replaceText("{{SecondaryMemberID}}", secId); 
+    body.replaceText("{{DateReceived}}", formatDate(data[0])); 
+    body.replaceText("{{CreatedOn}}", formatDate(new Date()));
+    const products = [];
+    if (checkBool(data[5])) products.push("TENS");
+    if (checkBool(data[6])) products.push("Stockings");
+    if (checkBool(data[7])) products.push("Pump");
+    if (checkBool(data[8])) products.push("Bracing (" + data[9] + ")");
+    body.replaceText("{{Products Needed}}", products.join(", ") || "None listed");
+    doc.saveAndClose();
+    const pdf = folder.createFile(copy.getAs(MimeType.PDF));
+    copy.setTrashed(true);
+    sheet.getRange(row, 20).setValue(pdf.getUrl()); 
+    addToCallLog(data); 
+  } catch (e) { console.log("Demo Gen Error: " + e); }
+}
+
+function checkBool(val) { return val === true || String(val).toUpperCase() === "TRUE"; }
+
+function addToCallLog(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let callSheet = ss.getSheetByName("Call Log");
+  if (!callSheet) {
+    callSheet = ss.insertSheet("Call Log");
+    callSheet.appendRow(["Status", "Patient Name", "Phone", "Address", "Reason", "Insurance", "Call 1", "Call 2", "DOB", "Folder Link"]);
+    callSheet.getRange("A1:J1").setBackground("#4285F4").setFontColor("white").setFontWeight("bold");
+  }
+  const name = data[1];
+  const dob = formatDate(data[2]);
+  const phone = data[3];    
+  const address = data[4];  
+  const logData = callSheet.getDataRange().getValues();
+  const isDuplicate = logData.some(row => String(row[1]).toLowerCase() === String(name).toLowerCase() && formatDate(row[8]) === dob);
+  if (!isDuplicate) {
+    const lastRow = callSheet.getLastRow() + 1;
+    callSheet.appendRow(["To Call", name, phone, address, "New Intake", data[10], "", "", dob, data[18]]);
+    callSheet.getRange(lastRow, 3).setNumberFormat('(###) ###-####');
+    const statusCell = callSheet.getRange(lastRow, 1);
+    const options = ["To Call", "Left Message", "Not Interested", "Scheduled", "Wrong Number"];
+    const rule = SpreadsheetApp.newDataValidation().requireValueInList(options).build();
+    statusCell.setDataValidation(rule);
+  }
+}
+
+function createTensLMN(sheet, row, data) {
+  try {
+    const folder = DriveApp.getFolderById(data[17]);
+    const template = DriveApp.getFileById(CONFIG.LMN_TEMPLATE_ID);
+    const copy = template.makeCopy(`LMN - ${data[1]} - TENS`, folder);
+    const doc = DocumentApp.openById(copy.getId());
+    const body = doc.getBody();
+    body.replaceText("{{PATIENT_NAME}}", data[1]);
+    body.replaceText("{{DOB}}", formatDate(data[2]));
+    body.replaceText("{{PHONE}}", data[3]); 
+    doc.saveAndClose();
+    const pdf = folder.createFile(copy.getAs(MimeType.PDF));
+    copy.setTrashed(true);
+    sheet.getRange(row, 21).setValue(pdf.getUrl()); 
+  } catch (e) { console.log("LMN Error: " + e.message); }
+}
+
+function forceGenerateMissingDemos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  let count = 0;
+  for (let i = 1; i < data.length; i++) {
+    const rowIdx = i + 1;
+    let rowData = data[i]; 
+    const name = rowData[1];
+    const primIns = rowData[10];
+    let folderId = rowData[17];
+    const demoUrl = rowData[19];
+    if (name && primIns && !demoUrl) {
+      sheet.getRange(rowIdx, 4).setNumberFormat('(###) ###-####');
+      if (!folderId) {
+        folderId = createPatientFolder(sheet, rowIdx, name, rowData[2]);
+        rowData[17] = folderId; 
+      }
+      if (folderId) {
+        createDemoPDF(sheet, rowIdx, rowData);
+        count++;
+      }
+    }
+  }
+  SpreadsheetApp.getUi().alert("Bulk Sync Complete! Processed " + count + " patients.");
+}
+
+function repairAndClearDemos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  let deleteCount = 0;
+  for (let i = 1; i < data.length; i++) {
+    const demoUrl = data[i][19]; 
+    if (demoUrl) {
+      try {
+        const fileId = demoUrl.split('id=')[1] || demoUrl.split('/d/')[1].split('/')[0];
+        DriveApp.getFileById(fileId).setTrashed(true);
+        deleteCount++;
+      } catch (e) { console.log("Delete error: " + e); }
+      sheet.getRange(i + 1, 20).clearContent();
+    }
+  }
+  SpreadsheetApp.getUi().alert("Reset Complete. Deleted " + deleteCount + " PDFs. Run 'Bulk Sync' now.");
+}
+
+function formatDate(date) { 
+  if (!date || !(date instanceof Date)) return date || "";
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), "MM/dd/yyyy");
+}
