@@ -1,0 +1,15 @@
+function repairMasterList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  sheet.getRange("F2:I" + lastRow).insertCheckboxes();
+  sheet.getRange("O2:P" + lastRow).insertCheckboxes();
+  const data = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][1] && data[i][2] && !data[i][17]) {
+      createPatientFolder(sheet, i + 2, data[i][1], data[i][2]);
+    }
+  }
+  SpreadsheetApp.getUi().alert("Repair Complete!");
+}
