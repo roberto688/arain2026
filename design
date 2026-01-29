@@ -1,0 +1,89 @@
+function makeItLookCool() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.INPUT_SHEET_NAME);
+  
+  // 1. WIPE EVERYTHING (Values, Checkboxes, Colors, Borders)
+  // We use clear() which covers everything in one go.
+  sheet.getRange("A1:Z100").clear(); 
+  
+  // Set the overall background
+  sheet.getRange("A1:Z100").setBackground("#f0f2f5"); 
+  sheet.setHiddenGridlines(true);
+
+  // 2. MAIN INTAKE CARD
+  const formRange = sheet.getRange("B2:C16");
+  formRange.setBackground("white");
+  formRange.setBorder(true, true, true, true, null, null, "black", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  
+  // Header
+  const header = sheet.getRange("B2:C2");
+  header.merge();
+  header.setValue("✨ New Patient Intake");
+  header.setBackground("#4285F4");
+  header.setFontColor("white");
+  header.setFontSize(14);
+  header.setFontWeight("bold");
+  header.setHorizontalAlignment("center");
+  header.setVerticalAlignment("middle");
+  
+  sheet.setColumnWidth(1, 50);  
+  sheet.setColumnWidth(2, 150); 
+  sheet.setColumnWidth(3, 300);
+  sheet.setRowHeight(2, 60);
+
+  // Helper to draw fields
+  function drawField(row, label) {
+    sheet.getRange("B" + row).setValue(label).setFontWeight("bold").setHorizontalAlignment("right");
+    sheet.getRange("C" + row).setBackground("#f8f9fa").setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+    sheet.setRowHeight(row, 35);
+  }
+
+  drawField(4, "Date Rec:");
+  drawField(5, "Name:");
+  drawField(6, "DOB:");
+  drawField(7, "Phone:");
+  drawField(8, "Address:");
+  sheet.getRange("C4").setValue(new Date());
+
+  // Products
+  sheet.getRange("B10:C10").merge().setValue("📦 Product Selection").setFontWeight("bold").setVerticalAlignment("bottom");
+  const prods = [["TENS Unit", 11], ["Stockings", 12], ["Pump", 13], ["Bracing", 14]];
+  prods.forEach(p => {
+    sheet.getRange("B" + p[1]).setValue(p[0]).setHorizontalAlignment("right");
+    sheet.getRange("C" + p[1]).insertCheckboxes();
+    sheet.setRowHeight(p[1], 30);
+  });
+  drawField(15, "Bracing Type:");
+
+  // Submit Button
+  const submitBtn = sheet.getRange("C17");
+  submitBtn.setValue("SUBMIT NEW PATIENT");
+  submitBtn.setBackground("#34A853");
+  submitBtn.setFontColor("white");
+  submitBtn.setFontWeight("bold");
+  submitBtn.setHorizontalAlignment("center");
+  sheet.setRowHeight(17, 50);
+
+  // 3. SEARCH CARD
+  sheet.getRange("B18:C21").setBackground("white").setBorder(true, true, true, true, null, null, "#4285F4", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  const searchHeader = sheet.getRange("B18:C18");
+  searchHeader.merge();
+  searchHeader.setValue("🔍 Quick Search");
+  searchHeader.setBackground("#4285F4");
+  searchHeader.setFontColor("white");
+  searchHeader.setFontWeight("bold");
+  searchHeader.setHorizontalAlignment("center");
+  
+  sheet.getRange("B19").setValue("Enter Name:").setHorizontalAlignment("right");
+  sheet.getRange("C19").setBackground("#f8f9fa").setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+  
+  const searchBtn = sheet.getRange("C20");
+  searchBtn.setValue("RUN SEARCH");
+  searchBtn.setBackground("#FBBC04");
+  searchBtn.setFontColor("white");
+  searchBtn.setFontWeight("bold");
+  searchBtn.setHorizontalAlignment("center");
+  sheet.setRowHeight(20, 40);
+
+  SpreadsheetApp.getActive().toast("UI Refreshed!");
+}
