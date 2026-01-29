@@ -1,0 +1,18 @@
+function checkStatus(sheet, rowIdx) {
+  if (!sheet) sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getRange(rowIdx, 1, 1, 23).getValues()[0];
+  const name = data[1];
+  const hasInsurance = (data[10] !== ""); 
+  const hasNotes = (data[14] === true);   
+  const hasRx = (data[15] === true);      
+  const hasDemo = (data[19] !== "");      
+  
+  let newStatus = data[16];
+  if (hasInsurance && hasNotes && hasDemo && !hasRx) newStatus = "Ready for RX Request";
+  if (hasInsurance && hasNotes && hasDemo && hasRx) newStatus = "Complete - Billing Ready";
+
+  if (newStatus !== data[16]) {
+    sheet.getRange(rowIdx, 17).setValue(newStatus);
+    MailApp.sendEmail(CONFIG.ADMIN_EMAIL, `Status Update: ${name}`, `Patient is now: ${newStatus}`, {cc: CONFIG.CC_EMAIL});
+  }
+}
