@@ -1,0 +1,39 @@
+function emailAssistant1() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  const missing = [["Patient Name", "DOB", "Phone", "Address"]];
+  const rowsToUpdate = [];
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] && data[i][10] === "" && data[i][21] === "") { 
+      missing.push([data[i][1], formatDate(data[i][2]), data[i][3], data[i][4]]);
+      rowsToUpdate.push(i + 1);
+    }
+  }
+  if (missing.length <= 1) return;
+  const tempSS = SpreadsheetApp.create("Insurance_Request_" + formatDate(new Date()));
+  tempSS.getSheets()[0].getRange(1,1,missing.length,4).setValues(missing);
+  MailApp.sendEmail(CONFIG.ASST_1_EMAIL, "Insurance Info Needed", "See attached.", {attachments: [getExcelBlob(tempSS)], cc: CONFIG.CC_EMAIL});
+  DriveApp.getFileById(tempSS.getId()).setTrashed(true);
+  rowsToUpdate.forEach(r => sheet.getRange(r, 22).setValue(new Date()));
+}
+
+function emailAssistant2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  const data = sheet.getDataRange().getValues();
+  let count = 0;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] && data[i][14] === false && data[i][22] === "") {
+      count++;
+      sheet.getRange(i+1, 23).setValue(new Date());
+    }
+  }
+  if (count > 0) MailApp.sendEmail(CONFIG.ASST_2_EMAIL, "Clinical Notes Needed", `Please check the Master List. ${count} patients need notes.`, {cc: CONFIG.CC_EMAIL});
+}
+
+function getExcelBlob(ss) {
+  const url = "https://docs.google.com/spreadsheets/d/" + ss.getId() + "/export?format=xlsx";
+  return UrlFetchApp.fetch(url, {headers: {Authorization: "Bearer " + ScriptApp.getOAuthToken()}}).getBlob().setName(ss.getName() + ".xlsx");
+}
