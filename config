@@ -1,0 +1,33 @@
+const CONFIG = {
+  // --- 1. EMAIL ADDRESSES ---
+  ASST_1_EMAIL: "alma.abaring@oneoakmedical.com", 
+  ASST_2_EMAIL: "sidra.ramzan@oneoakmedical.com", 
+  
+  // 🔴 STEP 1: Enter Biller Email (Don't forget the comma at the end!)
+  COMPLETED_EMAIL: "info@mcbdme.com", 
+  
+  ADMIN_EMAIL: "roberto@totoligroup.com",
+  CC_EMAIL: "rabstherapeuticsolutions@gmail.com, Roberto@totoligroup.com", 
+
+  // --- 2. FOLDER IDS ---
+  PARENT_FOLDER_ID: "1PH1GXHFGE4zBw1FizaHQ5mD6_X9PMRqJ",
+  UNMATCHED_FOLDER_ID: "1HmWlSuMvTS64FPfhkUGGItAFzp88lzqE", 
+  
+  // 🔴 STEP 2: Enter Archive Folder ID here
+  ARCHIVE_FOLDER_ID: "1hgTivCx7eClF5BXzFQr3mqRk8hCNySES", 
+
+  // --- 3. TEMPLATE IDS ---
+  DEMO_TEMPLATE_ID: "17KoyGrrNK1XMleYTprKboJ5XEpRMxVzYpGs-O5z3MtY", 
+  LMN_TEMPLATE_ID: "1JFTO6RZB3KRi7wE_ppnJHxyCZRN-C56Qlzot4_9CTWY", 
+
+  // --- 4. SHEET NAMES ---
+  SHEET_NAME: "Master List",
+  INPUT_SHEET_NAME: "Patient Entry",
+  CALL_LOG_NAME: "Call Log",
+  ARCHIVE_SHEET_NAME: "Archive",
+  
+  // --- 5. AUTOMATION LOGIC ---
+  RX_REGEX: /RX|Script|Prescription/i,
+  NOTES_REGEX: /Notes|Clinical|Visit/i,
+  NAME_MATCH_REGEX: /^\s*([A-Za-z]+)[,\s]+([A-Za-z]+)/
+};
